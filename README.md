@@ -95,6 +95,7 @@ bash scripts/chase_visual_head/qwen.sh
 bash scripts/eval/llava.sh
 bash scripts/eval/mistral.sh
 bash scripts/eval/qwen.sh
+bash scripts/eval/qwen_quant.sh  quant
 ```
 
 ### Viz
