@@ -194,15 +194,7 @@ class QuantizedCacheVLM(QuantizedTensorFunction):
     cache_kwargs: Optional[Dict[str, Any]] = None,
     alloc_bits=None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-        if layer_idx == 0:
-            self._seen_tokens += key_states.shape[-2]
-        if len(self.key_cache) < layer_idx:
-            raise ValueError("QuantizedCache does not support model usage where layers are skipped. Use DynamicCache.")
-        elif len(self.key_cache) == layer_idx:
-            self.compute_dtype = key_states.dtype
-            B, H, N, D = key_states.shape
-           
-            def quantize_per_head(tensor, axis, alloc_bits_layer):
+        def quantize_per_head(tensor, axis, alloc_bits_layer):
                 quantized_heads = []
                 for h in range(H):
                     bits = alloc_bits_layer[h]
@@ -211,6 +203,23 @@ class QuantizedCacheVLM(QuantizedTensorFunction):
                     quantized = self._quantize(tensor[:, h:h+1,:,:], axis=axis, bits=bits,group_size=self.q_group_size)
                     quantized_heads.append(quantized)
                 return quantized_heads  # list of tensors,different heads
+        def dequantize_per_head(list, axis, alloc_bits_layer):
+                dequantized_heads=[]
+                for h in range(H):
+                    bits = alloc_bits_layer[h]
+                    bits = float(alloc_bits_layer[h].item())
+                    dequantized=self._dequantize(list[h],axis=axis, bits=bits,group_size=self.q_group_size)
+                    dequantized_heads.append(dequantized)
+                return torch.cat(dequantized_heads,dim=1)
+        if layer_idx == 0:
+            self._seen_tokens += key_states.shape[-2]
+        if len(self.key_cache) < layer_idx:
+            raise ValueError("QuantizedCache does not support model usage where layers are skipped. Use DynamicCache.")
+        elif len(self.key_cache) == layer_idx:
+            self.compute_dtype = key_states.dtype
+            B, H, N, D = key_states.shape
+           
+           
                 
             remainder = N % self.q_group_size
             if remainder > 0:
@@ -241,15 +250,7 @@ class QuantizedCacheVLM(QuantizedTensorFunction):
         else: #decoding 
             B, H, N, D = key_states.shape
             assert N==1,H==4
-            
-            def dequantize_per_head(list, axis, alloc_bits_layer):
-                dequantized_heads=[]
-                for h in range(H):
-                    bits = alloc_bits_layer[h]
-                    bits = float(alloc_bits_layer[h].item())
-                    dequantized=self._dequantize(list[h],axis=axis, bits=bits,group_size=self.q_group_size)
-                    dequantized_heads.append(dequantized)
-                return torch.cat(dequantized_heads,dim=1)
+        
             
             dequant_key = dequantize_per_head(self._quantized_key_cache[layer_idx],self.axis_key, alloc_bits)
             dequant_value = dequantize_per_head(self._quantized_value_cache[layer_idx],self.axis_value, alloc_bits)
